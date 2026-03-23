@@ -1,9 +1,9 @@
 import matplotlib
-matplotlib.use("Agg")  # MUST be first — before any pyplot import
+matplotlib.use("Agg")  # MUST be before pyplot — no GUI on servers
 
+from flask import Flask, request, jsonify, render_template
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
-from flask import Flask, request, jsonify, render_template
 import yfinance as yf
 import pandas as pd
 import os
@@ -16,15 +16,7 @@ PLOT_DIR = os.path.join("static", "plots")
 os.makedirs(PLOT_DIR, exist_ok=True)
 
 
-def flatten_columns(df):
-    """yfinance v0.2+ sometimes returns MultiIndex columns — flatten them."""
-    if isinstance(df.columns, pd.MultiIndex):
-        df.columns = [col[0] for col in df.columns]
-    return df
-
-
 def cleanup_old_plots():
-    """Delete PNGs older than 1 hour to save disk space."""
     cutoff = datetime.now() - timedelta(hours=1)
     for fname in os.listdir(PLOT_DIR):
         fpath = os.path.join(PLOT_DIR, fname)
@@ -36,6 +28,18 @@ def cleanup_old_plots():
                 pass
 
 
+def fix_yfinance_columns(df):
+    """
+    yfinance >= 0.2.x returns MultiIndex columns like ('Close', 'AAPL').
+    This flattens them to single-level: 'Close', 'Volume', etc.
+    """
+    if isinstance(df.columns, pd.MultiIndex):
+        df.columns = [col[0] for col in df.columns]
+    # Remove any duplicate columns (keep first)
+    df = df.loc[:, ~df.columns.duplicated()]
+    return df
+
+
 @app.route("/")
 def index():
     return render_template("index.html")
@@ -45,7 +49,8 @@ def index():
 def analyze():
     cleanup_old_plots()
 
-    payload = request.get_json(silent=True)
+    # ── Parse request ───────────────────────────────────────────────────────
+    payload = request.get_json(silent=True, force=True)
     if not payload:
         return jsonify({"error": "Invalid or missing JSON body"}), 400
 
@@ -57,7 +62,7 @@ def analyze():
     if not symbol:
         return jsonify({"error": "Symbol is required"}), 400
 
-    # ── 1. Fetch data ───────────────────────────────────────────────────────
+    # ── Fetch ───────────────────────────────────────────────────────────────
     try:
         df = yf.download(
             symbol,
@@ -67,27 +72,28 @@ def analyze():
             threads=False
         )
     except Exception as e:
-        return jsonify({"error": f"Data fetch failed: {str(e)}"}), 500
-
-    df = flatten_columns(df)
+        return jsonify({"error": f"Download failed: {str(e)}"}), 500
 
     if df is None or df.empty:
-        return jsonify({"error": f"No data found for '{symbol}'. Check the ticker symbol."}), 404
+        return jsonify({"error": f"No data found for '{symbol}'. Is it a valid ticker?"}), 404
 
-    # ── 2. Validate & process ───────────────────────────────────────────────
+    # ── Fix MultiIndex columns (yfinance >= 0.2 issue) ──────────────────────
+    df = fix_yfinance_columns(df)
+
+    # Verify we have what we need
     if "Close" not in df.columns:
-        return jsonify({"error": f"Unexpected data format for '{symbol}'"}), 500
+        return jsonify({"error": f"Could not read price data for '{symbol}'"}), 500
 
     if show_volume and "Volume" not in df.columns:
-        show_volume = False
+        show_volume = False  # degrade gracefully
 
-    df = df.copy()
+    # ── Process ─────────────────────────────────────────────────────────────
     df.index = pd.to_datetime(df.index)
     df["Close"] = pd.to_numeric(df["Close"], errors="coerce")
     df = df.dropna(subset=["Close"])
 
     if len(df) < 2:
-        return jsonify({"error": "Not enough data points to generate a chart"}), 404
+        return jsonify({"error": "Not enough data to plot"}), 404
 
     latest_price = float(df["Close"].iloc[-1])
     start_price  = float(df["Close"].iloc[0])
@@ -100,11 +106,10 @@ def analyze():
     else:
         moving_avg = False
 
-    # ── 3. Generate plot ────────────────────────────────────────────────────
-    # Try modern style name first, fall back for older matplotlib versions
-    for style_name in ["seaborn-v0_8-whitegrid", "seaborn-whitegrid", "default"]:
+    # ── Plot ────────────────────────────────────────────────────────────────
+    for style in ["seaborn-v0_8-whitegrid", "seaborn-whitegrid", "default"]:
         try:
-            plt.style.use(style_name)
+            plt.style.use(style)
             break
         except OSError:
             continue
@@ -127,11 +132,11 @@ def analyze():
 
     ax1.set_facecolor(fig_color)
 
-    # Price line + area fill
+    # Price line + fill
     ax1.plot(df.index, df["Close"],
              color=line_color, linewidth=2.5, label="Close price", zorder=3)
     ax1.fill_between(df.index, df["Close"], df["Close"].min(),
-                     color=line_color, alpha=0.10)
+                     color=line_color, alpha=0.08)
 
     # Moving average
     if moving_avg and "MA20" in df.columns:
@@ -139,7 +144,7 @@ def analyze():
                  color=ma_color, linewidth=1.5,
                  linestyle="--", alpha=0.85, label="MA 20")
 
-    # Peak annotation
+    # Peak dot + label
     try:
         peak_idx = df["Close"].idxmax()
         peak_val = float(df["Close"].max())
@@ -153,7 +158,7 @@ def analyze():
     except Exception:
         pass
 
-    # Axes styling
+    # Axes
     ax1.xaxis.set_major_formatter(mdates.DateFormatter("%b '%y"))
     ax1.xaxis.set_major_locator(mdates.MonthLocator())
     plt.setp(ax1.xaxis.get_majorticklabels(), rotation=0, ha="center")
@@ -161,15 +166,13 @@ def analyze():
     for spine in ax1.spines.values():
         spine.set_color(grid_color)
     ax1.set_ylabel("Price (USD)", color=text_color, fontsize=10)
-    ax1.set_title(
-        f"{symbol}  —  6-Month Price History",
-        color=text_color, fontsize=13, fontweight="bold", pad=14
-    )
+    ax1.set_title(f"{symbol}  —  6-Month Price History",
+                  color=text_color, fontsize=13, fontweight="bold", pad=14)
     ax1.legend(facecolor=fig_color, edgecolor=grid_color,
                labelcolor=text_color, fontsize=9)
     ax1.grid(color=grid_color, linewidth=0.5)
 
-    # Volume bars
+    # Volume
     if show_volume:
         try:
             vol = pd.to_numeric(df["Volume"], errors="coerce").fillna(0)
@@ -190,13 +193,13 @@ def analyze():
 
     plt.tight_layout(pad=2)
 
-    # ── 4. Save PNG ─────────────────────────────────────────────────────────
+    # ── Save ────────────────────────────────────────────────────────────────
     filename = f"{symbol}_{uuid.uuid4().hex[:8]}.png"
     filepath = os.path.join(PLOT_DIR, filename)
     fig.savefig(filepath, dpi=150, bbox_inches="tight", facecolor=fig_color)
     plt.close(fig)
 
-    # ── 5. Return JSON ───────────────────────────────────────────────────────
+    # ── Respond ─────────────────────────────────────────────────────────────
     return jsonify({
         "image_path": f"/static/plots/{filename}",
         "stats": {
@@ -211,4 +214,5 @@ def analyze():
 
 
 if __name__ == "__main__":
-    app.run(debug=True, host="0.0.0.0", port=5000)
+    port = int(os.environ.get("PORT", 5000))
+    app.run(debug=True, host="0.0.0.0", port=port)
