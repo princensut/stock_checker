@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>StockLens</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+  <link rel="stylesheet" href="/static/style.css"/>
+</head>
+<body>
+
+<!-- Topbar -->
+<nav class="topbar">
+  <div class="brand">
+    <div class="brand-icon">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+        <rect x="2" y="9" width="2.5" height="5" rx="0.5" fill="#fff"/>
+        <rect x="6" y="6" width="2.5" height="8" rx="0.5" fill="#fff"/>
+        <rect x="10" y="3" width="2.5" height="11" rx="0.5" fill="#fff"/>
+        <path d="M2 7L6 4.5L10 5.5L14 2" stroke="rgba(255,255,255,0.5)" stroke-width="1" stroke-linecap="round"/>
+      </svg>
+    </div>
+    <span class="brand-name">StockLens <span class="brand-tag">Flask Pipeline</span></span>
+  </div>
+  <div class="topbar-nav">
+    <button class="nav-link active">Dashboard</button>
+    <button class="nav-link">Watchlist</button>
+    <button class="nav-link">History</button>
+  </div>
+  <span class="top-pill" id="topPill">● Ready</span>
+</nav>
+
+<!-- Layout -->
+<div class="layout">
+
+  <!-- LEFT -->
+  <div class="left-col">
+
+    <!-- Input card -->
+    <div class="card animate-up">
+      <div class="card-head">
+        <span class="card-head-title">Stock Symbol</span>
+        <span class="mono-tag">POST /analyze</span>
+      </div>
+      <div class="card-body">
+        <label class="input-label" for="stockInput">Enter ticker symbol</label>
+        <div class="input-wrap">
+          <span class="input-prefix">$</span>
+          <input type="text" id="stockInput" placeholder="e.g. AAPL"
+                 maxlength="10" autocomplete="off" spellcheck="false"/>
+        </div>
+
+        <div class="chips">
+          <span class="chip chip-a" onclick="fill('AAPL')">AAPL</span>
+          <span class="chip chip-b" onclick="fill('TSLA')">TSLA</span>
+          <span class="chip chip-c" onclick="fill('MSFT')">MSFT</span>
+          <span class="chip chip-d" onclick="fill('GOOG')">GOOG</span>
+          <span class="chip chip-e" onclick="fill('AMZN')">AMZN</span>
+          <span class="chip chip-f" onclick="fill('NVDA')">NVDA</span>
+        </div>
+
+        <div class="toggles">
+          <div class="toggle-row">
+            <span class="toggle-label-text">Moving average</span>
+            <label class="toggle">
+              <input type="checkbox" id="optMA" checked>
+              <span class="toggle-track"></span>
+              <span class="toggle-thumb"></span>
+            </label>
+          </div>
+          <div class="toggle-row">
+            <span class="toggle-label-text">Volume bars</span>
+            <label class="toggle">
+              <input type="checkbox" id="optVol">
+              <span class="toggle-track"></span>
+              <span class="toggle-thumb"></span>
+            </label>
+          </div>
+          <div class="toggle-row">
+            <span class="toggle-label-text">Dark export</span>
+            <label class="toggle">
+              <input type="checkbox" id="optDark">
+              <span class="toggle-track"></span>
+              <span class="toggle-thumb"></span>
+            </label>
+          </div>
+        </div>
+
+        <button class="btn" id="analyzeBtn" onclick="run()">Analyze →</button>
+
+        <div class="status loading" id="stLoading">
+          <div class="spinner"></div>
+          <span id="stMsg">Initializing...</span>
+        </div>
+        <div class="status error" id="stError">
+          <span>⚠</span><span id="stErr">Symbol not found.</span>
+        </div>
+        <div class="status success" id="stOk">
+          <span>✓</span><span id="stOkMsg">Chart ready.</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Pipeline card -->
+    <div class="card pipeline animate-up" id="pipeCard">
+      <div class="card-head">
+        <span class="card-head-title">Pipeline</span>
+        <span id="pipeStatus" class="pipe-status-tag">—</span>
+      </div>
+      <div class="card-body">
+        <div class="pipe-steps">
+          <div class="pipe-step" id="p1">
+            <div class="pipe-dot">1</div>
+            <div class="pipe-info">
+              <div class="pipe-name">POST request <span class="pipe-tag">flask</span></div>
+              <div class="pipe-sub">Receive from frontend</div>
+            </div>
+          </div>
+          <div class="pipe-step" id="p2">
+            <div class="pipe-dot">2</div>
+            <div class="pipe-info">
+              <div class="pipe-name">Fetch data <span class="pipe-tag">yfinance</span></div>
+              <div class="pipe-sub">Download from Yahoo Finance</div>
+            </div>
+          </div>
+          <div class="pipe-step" id="p3">
+            <div class="pipe-dot">3</div>
+            <div class="pipe-info">
+              <div class="pipe-name">Validate <span class="pipe-tag">check</span></div>
+              <div class="pipe-sub">Symbol & data completeness</div>
+            </div>
+          </div>
+          <div class="pipe-step" id="p4">
+            <div class="pipe-dot">4</div>
+            <div class="pipe-info">
+              <div class="pipe-name">Process <span class="pipe-tag">pandas</span></div>
+              <div class="pipe-sub">Date, price, moving avg</div>
+            </div>
+          </div>
+          <div class="pipe-step" id="p5">
+            <div class="pipe-dot">5</div>
+            <div class="pipe-info">
+              <div class="pipe-name">Generate plot <span class="pipe-tag">matplotlib</span></div>
+              <div class="pipe-sub">Render PNG chart</div>
+            </div>
+          </div>
+          <div class="pipe-step" id="p6">
+            <div class="pipe-dot">6</div>
+            <div class="pipe-info">
+              <div class="pipe-name">Serve to UI <span class="pipe-tag">json</span></div>
+              <div class="pipe-sub">Return image path</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /left -->
+
+  <!-- RIGHT -->
+  <div class="right-panel">
+
+    <!-- Workflow badges -->
+    <div class="workflow-track animate-up">
+      <div class="wf-item"><span class="wf-badge" id="wf1">Input</span><span class="wf-arrow">›</span></div>
+      <div class="wf-item"><span class="wf-badge" id="wf2">Fetch</span><span class="wf-arrow">›</span></div>
+      <div class="wf-item"><span class="wf-badge" id="wf3">Validate</span><span class="wf-arrow">›</span></div>
+      <div class="wf-item"><span class="wf-badge" id="wf4">Process</span><span class="wf-arrow">›</span></div>
+      <div class="wf-item"><span class="wf-badge" id="wf5">Plot</span><span class="wf-arrow">›</span></div>
+      <div class="wf-item"><span class="wf-badge" id="wf6">Display</span></div>
+    </div>
+
+    <!-- Chart card -->
+    <div class="card chart-card animate-up" id="chartCard">
+      <div class="symbol-header">
+        <div>
+          <div class="symbol-name" id="symName">—</div>
+          <div class="symbol-full" id="symFull">—</div>
+        </div>
+        <span class="symbol-badge" id="symBadge">NASDAQ · EQUITY</span>
+      </div>
+
+      <!-- Stat cards -->
+      <div class="stat-cards-wrap">
+        <div class="stat-cards">
+          <div class="stat-card stat-card-price">
+            <div class="sc-val" id="sPrice">—</div>
+            <div class="sc-key">Last price</div>
+          </div>
+          <div class="stat-card stat-card-change" id="scChange">
+            <div class="sc-val" id="sChange">—</div>
+            <div class="sc-key">6mo change</div>
+          </div>
+          <div class="stat-card stat-card-high">
+            <div class="sc-val" id="sHigh">—</div>
+            <div class="sc-key">Period high</div>
+          </div>
+          <div class="stat-card stat-card-low">
+            <div class="sc-val" id="sLow">—</div>
+            <div class="sc-key">Period low</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="tabs">
+        <button class="tab active" onclick="switchTab(this,'line')">Line chart</button>
+        <button class="tab" onclick="switchTab(this,'ma')">Moving avg</button>
+        <button class="tab" onclick="switchTab(this,'vol')">Volume</button>
+      </div>
+
+      <!-- Chart image — Flask fills this -->
+      <div class="chart-area" id="chartArea">
+        <div class="chart-placeholder">Chart will appear here after analysis</div>
+      </div>
+    </div>
+
+    <!-- Empty state -->
+    <div class="empty-state animate-up" id="emptyState">
+      <div class="empty-icon">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+          <path d="M3 17L8 11L12 14L17 7L21 10" stroke="#4f46e5"
+                stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          <rect x="2" y="2" width="20" height="20" rx="4"
+                stroke="#c7d2fe" stroke-width="1.5"/>
+        </svg>
+      </div>
+      <div class="empty-title">No chart yet</div>
+      <div class="empty-sub">Enter a stock ticker and click Analyze to run the pipeline</div>
+    </div>
+
+  </div><!-- /right -->
+</div>
+
+<script src="/static/script.js"></script>
+</body>
+</html>
